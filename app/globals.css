@@ -1,0 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #070A0F;
+  --bg-card: #0D1117;
+  --border: #1C2433;
+  --border-bright: #2A3750;
+  --accent: #00E5FF;
+  --accent-dim: rgba(0, 229, 255, 0.10);
+  --accent-glow: rgba(0, 229, 255, 0.35);
+  --gold: #FFB800;
+  --green: #00FF88;
+  --red: #FF4757;
+  --text-primary: #E8EEFF;
+  --text-secondary: #6B7FA3;
+  --text-muted: #3D4E6A;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: 'Syne', sans-serif;
+  min-height: 100vh;
+}
+
+.mono { font-family: 'DM Mono', monospace; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-fade-in { animation: fadeIn 0.5s ease forwards; }
+.animate-pulse { animation: pulseGlow 2s ease-in-out infinite; }
