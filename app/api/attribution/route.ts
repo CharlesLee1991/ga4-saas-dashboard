@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase.rpc as any)('ga4_get_utm_attribution', {
     p_client_code: clientCode,
-    p_model: model,
+    p_attribution_model: model,
     ...(dateFrom && { p_date_from: dateFrom }),
     ...(dateTo && { p_date_to: dateTo }),
   })

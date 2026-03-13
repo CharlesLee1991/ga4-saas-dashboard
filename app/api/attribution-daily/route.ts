@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('ga4_utm_attribution')
-    .select('stat_date, utm_source, session_count, order_count, order_amount')
+    .select('stat_date, utm_source, landing_session, odr_count, order_amount')
     .eq('client_code', clientCode)
     .eq('attribution_model', model)
     .order('stat_date', { ascending: true })
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     const s = row.utm_source || 'direct'
     sources.add(s)
     if (!grouped[d]) grouped[d] = {}
-    grouped[d][s] = (grouped[d][s] || 0) + (row.session_count || 0)
+    grouped[d][s] = (grouped[d][s] || 0) + (row.landing_session || 0)
   }
 
   const chartData = Object.entries(grouped).map(([date, vals]) => ({

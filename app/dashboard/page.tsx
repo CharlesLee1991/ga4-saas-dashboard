@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -22,11 +22,11 @@ const TABS = [
 ]
 
 const MODELS = [
-  { value: 'even', label: '균등 배분' },
-  { value: 'divide', label: '미분할' },
-  { value: 'first', label: '최초 터치' },
-  { value: 'last', label: '최종 배분' },
-  { value: 'direct', label: '직접 전환' },
+  { value: 'first', label: '최초캠페인' },
+  { value: 'last', label: '최종캠페인' },
+  { value: 'even', label: '균등분할' },
+  { value: 'divide', label: '균등미분할' },
+  { value: 'direct', label: '직접전환' },
 ]
 
 const DIMENSIONS = [
@@ -45,7 +45,78 @@ function getDateRange(days: number) {
   return { from: from.toISOString().split('T')[0], to: to.toISOString().split('T')[0] }
 }
 
-// ── Shared Components ──
+// ── Filter Dropdown (JUVIS-style popup) ──
+function FilterDropdown({ label, options, selected, onChange, multi = false }: {
+  label: string; options: { value: string; label: string }[]; selected: string; onChange: (v: string) => void; multi?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+  const selectedLabel = options.find(o => o.value === selected)?.label || selected
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(!open)} style={{
+        display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', minWidth: '160px',
+        background: '#fff', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px',
+        cursor: 'pointer', color: '#1a202c', justifyContent: 'space-between',
+      }}>
+        <span style={{ fontWeight: '500' }}>{label}</span>
+        <span style={{ color: '#9ca3af', fontSize: '12px' }}>▼</span>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: '4px', minWidth: '240px',
+          background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '12px',
+          boxShadow: '0 10px 40px rgba(0,0,0,0.12)', zIndex: 50,
+        }}>
+          {/* Search */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '8px 12px', background: '#f9fafb', borderRadius: '8px' }}>
+            <span style={{ color: '#9ca3af' }}>🔍</span>
+            <input type="text" placeholder="검색어 입력" value={search} onChange={e => setSearch(e.target.value)}
+              style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', flex: 1, color: '#374151' }} />
+            <span style={{ background: '#e5e7eb', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', color: '#6b7280' }}>{label}</span>
+          </div>
+
+          {/* Options */}
+          <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
+            {filtered.map(o => (
+              <button key={o.value} onClick={() => { onChange(o.value); if (!multi) setOpen(false) }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '10px 12px',
+                  background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px',
+                  color: selected === o.value ? '#1a202c' : '#4b5563', borderRadius: '6px',
+                  fontWeight: selected === o.value ? '600' : '400',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+                <span style={{
+                  width: '18px', height: '18px', borderRadius: multi ? '4px' : '50%',
+                  border: `2px solid ${selected === o.value ? '#3182ce' : '#d1d5db'}`,
+                  background: selected === o.value ? '#3182ce' : '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  {selected === o.value && <span style={{ color: '#fff', fontSize: '11px', fontWeight: '700' }}>✓</span>}
+                </span>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TabNav({ active, onChange }: { active: string; onChange: (t: string) => void }) {
   return (
     <nav style={{ display: 'flex', gap: '0', borderBottom: '2px solid #e2e8f0', marginBottom: '24px' }}>
@@ -91,7 +162,7 @@ function AttributionTab({ apiKey, period }: { apiKey: string; period: number }) 
   const [attrData, setAttrData] = useState<AttrData | null>(null)
   const [dailyData, setDailyData] = useState<DailyRow[]>([])
   const [sources, setSources] = useState<string[]>([])
-  const [model, setModel] = useState('even')
+  const [model, setModel] = useState('last')
   const [dimension, setDimension] = useState('source')
   const [loading, setLoading] = useState(true)
 
@@ -133,15 +204,9 @@ function AttributionTab({ apiKey, period }: { apiKey: string; period: number }) 
     <div className="animate-fade-in">
       {/* Filters */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <select value={dimension} onChange={e => setDimension(e.target.value)}
-          style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', background: '#fff' }}>
-          {DIMENSIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-        </select>
-        <select value={model} onChange={e => setModel(e.target.value)}
-          style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', background: '#fff' }}>
-          {MODELS.map(m => <option key={m.value} value={m.value}>model: {m.label}</option>)}
-        </select>
-        <span style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', background: '#fff', color: '#4a5568' }}>
+        <FilterDropdown label={dimension} options={DIMENSIONS} selected={dimension} onChange={setDimension} />
+        <FilterDropdown label={`model: ${MODELS.find(m => m.value === model)?.label || model}`} options={MODELS} selected={model} onChange={setModel} />
+        <span style={{ padding: '10px 20px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', background: '#fff', color: '#4a5568' }}>
           최근 {period}일
         </span>
       </div>
