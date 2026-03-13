@@ -493,8 +493,11 @@ function SourcePathTab({ apiKey, period }: { apiKey: string; period: number }) {
 }
 
 // ── Tab 3: Content (Term) Path ──
+interface CreativeMeta { utm_term: string; platform: string; creative_name: string | null; thumbnail_url: string | null; landing_url: string | null }
+
 function ContentPathTab({ apiKey, period }: { apiKey: string; period: number }) {
   const [paths, setPaths] = useState<TermPath[]>([])
+  const [metas, setMetas] = useState<Record<string, CreativeMeta>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -502,57 +505,70 @@ function ContentPathTab({ apiKey, period }: { apiKey: string; period: number }) 
       setLoading(true)
       const { from, to } = getDateRange(period)
       try {
-        const res = await fetch(`/api/term-paths?key=${apiKey}&from=${from}&to=${to}&limit=30`)
-        const data = await res.json()
-        setPaths(data?.paths || [])
+        const [pathRes, metaRes] = await Promise.all([
+          fetch(`/api/term-paths?key=${apiKey}&from=${from}&to=${to}&limit=30`),
+          fetch(`/api/creative-meta?key=${apiKey}`),
+        ])
+        const [pathData, metaData] = await Promise.all([pathRes.json(), metaRes.json()])
+        setPaths(pathData?.paths || [])
+        const map: Record<string, CreativeMeta> = {}
+        for (const m of (metaData || [])) { map[m.utm_term] = m }
+        setMetas(map)
       } catch { /* */ }
       setLoading(false)
     })()
   }, [apiKey, period])
 
-  const maxOrder = Math.max(...paths.map(p => p.order_count), 1)
+  const resolveName = (term: string) => metas[term]?.creative_name || term
+  const resolveThumb = (term: string) => metas[term]?.thumbnail_url || null
   const maxRevenue = Math.max(...paths.filter(p => p.order_amount).map(p => p.order_amount!), 1)
 
   if (loading) return <div style={{ textAlign: 'center', padding: '60px', color: '#a0aec0' }}>데이터 로딩 중...</div>
 
-  // Step visualization (top path)
   const topPath = paths[0]
   const topSteps = topPath ? (topPath.term_trace || '').split(' > ') : []
 
   return (
     <div className="animate-fade-in">
-      {/* Step Funnel Visualization */}
       {topPath && (
         <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '20px', color: '#1a202c' }}>소재 전환 경로 (Top 1)</h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0', overflowX: 'auto', paddingBottom: '8px' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '20px', color: '#1a202c' }}>Content Analysis</h3>
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: '0', overflowX: 'auto', paddingBottom: '8px' }}>
             {topSteps.map((step, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-                <div style={{
-                  minWidth: '140px', padding: '16px', background: i === 0 ? '#ebf8ff' : i === topSteps.length - 1 ? '#fefcbf' : '#f0fff4',
-                  border: `1px solid ${i === 0 ? '#bee3f8' : i === topSteps.length - 1 ? '#fefcbf' : '#c6f6d5'}`,
-                  borderRadius: '8px', textAlign: 'center',
-                }}>
-                  <div style={{ fontSize: '11px', color: '#718096', fontWeight: '600', marginBottom: '4px' }}>Step {i + 1}</div>
-                  <div className="mono" style={{ fontSize: '12px', color: '#2d3748', fontWeight: '500', wordBreak: 'break-all' }}>
-                    {step.length > 16 ? step.slice(0, 16) + '…' : step}
+                <div style={{ minWidth: '160px', maxWidth: '200px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', color: '#718096', fontWeight: '700', marginBottom: '8px', letterSpacing: '1px' }}>Step  {i + 1}</div>
+                  <div style={{
+                    width: '150px', height: '200px', margin: '0 auto', borderRadius: '8px', overflow: 'hidden',
+                    border: '1px solid #e2e8f0', background: '#f7fafc', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {resolveThumb(step) ? (
+                      <img src={resolveThumb(step)!} alt={resolveName(step)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '12px' }}>
+                        <div style={{ fontSize: '24px', marginBottom: '8px' }}>
+                          {metas[step]?.platform === 'tiktok' ? '🎵' : metas[step]?.platform === 'meta' ? '📸' : '📄'}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#a0aec0', wordBreak: 'break-all' }}>{resolveName(step)}</div>
+                      </div>
+                    )}
                   </div>
                 </div>
                 {i < topSteps.length - 1 && (
-                  <div style={{ padding: '0 8px', color: '#a0aec0', fontSize: '16px', fontWeight: '700' }}>▶</div>
+                  <div style={{ padding: '0 4px', color: '#a0aec0', fontSize: '20px', fontWeight: '700', alignSelf: 'center', marginTop: '28px' }}>▶</div>
                 )}
               </div>
             ))}
-            {/* Order count */}
-            <div style={{ marginLeft: '16px', padding: '16px 24px', background: '#fed7d7', borderRadius: '8px', textAlign: 'center' }}>
-              <div style={{ fontSize: '11px', color: '#9b2c2c', fontWeight: '600' }}>세션수</div>
-              <div style={{ fontSize: '20px', fontWeight: '700', color: '#c53030' }}>{fmt(topPath.sessions)}</div>
+            <div style={{ marginLeft: '12px', display: 'flex', alignItems: 'center' }}>
+              <div style={{ padding: '20px 28px', background: '#fed7d7', borderRadius: '8px', textAlign: 'center', minWidth: '80px' }}>
+                <div style={{ fontSize: '11px', color: '#9b2c2c', fontWeight: '600', marginBottom: '4px' }}>세션수</div>
+                <div style={{ fontSize: '24px', fontWeight: '700', color: '#c53030' }}>{fmt(topPath.sessions)}</div>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Content Path Table */}
       <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
         <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: '#1a202c' }}>전환 경로</h3>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -576,7 +592,7 @@ function ContentPathTab({ apiKey, period }: { apiKey: string; period: number }) 
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
                       {steps.map((s, j) => (
                         <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                          <PathBadge step={s} isFirst={j === 0} isLast={j === steps.length - 1 && steps.length > 1} />
+                          <PathBadge step={resolveName(s)} isFirst={j === 0} isLast={j === steps.length - 1 && steps.length > 1} />
                           {j < steps.length - 1 && <span style={{ color: '#a0aec0', fontSize: '11px' }}>&gt;</span>}
                         </span>
                       ))}
@@ -588,6 +604,13 @@ function ContentPathTab({ apiKey, period }: { apiKey: string; period: number }) 
               )
             })}
           </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f7fafc' }}>
+              <td colSpan={2} style={{ padding: '12px', fontWeight: '700', fontSize: '13px' }}>총 합계</td>
+              <td style={{ padding: '12px', textAlign: 'right', fontWeight: '700', fontSize: '13px' }}>{fmt(paths.reduce((s, p) => s + p.sessions, 0))}</td>
+              <td style={{ padding: '12px', textAlign: 'right', fontWeight: '700', fontSize: '13px' }}>{fmtW(paths.reduce((s, p) => s + (p.order_amount || 0), 0))}</td>
+            </tr>
+          </tfoot>
         </table>
         <div style={{ textAlign: 'right', marginTop: '12px', fontSize: '12px', color: '#a0aec0' }}>
           1 - {Math.min(paths.length, 20)} / {paths.length}
@@ -596,7 +619,6 @@ function ContentPathTab({ apiKey, period }: { apiKey: string; period: number }) 
     </div>
   )
 }
-
 // ── Main Dashboard ──
 export default function DashboardPage() {
   const router = useRouter()
