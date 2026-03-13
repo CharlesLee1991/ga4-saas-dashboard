@@ -13,6 +13,10 @@ interface Channel { channel: string; attributed_conversions: number; attributed_
 interface ConvPath { path_sequence: string[]; path_length: number; conversions: number; revenue: number; avg_days_to_convert: number }
 interface SyncTable { table_name: string; last_synced_at: string; row_count: number; status: string }
 interface SyncData { client_code: string; tables: SyncTable[]; overall_health: string }
+interface AttrChannel { utm_source: string; utm_medium: string; order_count: number; order_amount: number; share_pct: number; pageview: number; landing: number; landing_user: number }
+interface AttrData { model: string; channels: AttrChannel[]; date_range: { from: string; to: string }; client_code: string }
+interface SourcePath { source_trace: string; sessions: number; visitors: number; order_count: number; order_amount: number | null }
+interface TermPath { term_trace: string; sessions: number; visitors: number; order_count: number; order_amount: number | null }
 
 // ── Helpers ──
 const fmt = (n: number) => n?.toLocaleString('ko-KR') ?? '—'
@@ -26,6 +30,14 @@ const PERIOD_OPTIONS = [
 ]
 
 const CHANNEL_COLORS = ['#00E5FF', '#FFB800', '#00FF88', '#FF4757', '#A78BFA', '#F59E0B', '#EC4899', '#3B82F6']
+
+const ATTR_MODELS = [
+  { value: 'even', label: '균등 기여' },
+  { value: 'divide', label: '미분할' },
+  { value: 'first', label: '최초 터치' },
+  { value: 'last', label: '최종 터치' },
+  { value: 'direct', label: '직접 전환' },
+]
 
 function getDateRange(days: number) {
   const to = new Date()
@@ -81,6 +93,10 @@ export default function DashboardPage() {
   const [channels, setChannels] = useState<Channel[]>([])
   const [paths, setPaths] = useState<ConvPath[]>([])
   const [sync, setSync] = useState<SyncData | null>(null)
+  const [attrData, setAttrData] = useState<AttrData | null>(null)
+  const [sourcePaths, setSourcePaths] = useState<SourcePath[]>([])
+  const [termPaths, setTermPaths] = useState<TermPath[]>([])
+  const [attrModel, setAttrModel] = useState('even')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -97,18 +113,27 @@ export default function DashboardPage() {
     const qs = `key=${key}&from=${from}&to=${to}`
 
     try {
-      const [kpiRes, chRes, pathRes, syncRes] = await Promise.all([
+      const [kpiRes, chRes, pathRes, syncRes, attrRes, srcRes, termRes] = await Promise.all([
         fetch(`/api/kpi?${qs}`),
         fetch(`/api/channels?${qs}`),
         fetch(`/api/paths?${qs}`),
         fetch(`/api/sync?key=${key}`),
+        fetch(`/api/attribution?${qs}&model=even`),
+        fetch(`/api/source-paths?${qs}&limit=20`),
+        fetch(`/api/term-paths?${qs}&limit=20`),
       ])
       if (!kpiRes.ok) throw new Error('Auth failed')
-      const [kpi, ch, path, sy] = await Promise.all([kpiRes.json(), chRes.json(), pathRes.json(), syncRes.json()])
+      const [kpi, ch, path, sy, attr, src, term] = await Promise.all([
+        kpiRes.json(), chRes.json(), pathRes.json(), syncRes.json(),
+        attrRes.json(), srcRes.json(), termRes.json(),
+      ])
       setKpiData(kpi)
       setChannels((ch.channels || []).filter((c: Channel) => c.attributed_revenue > 0).slice(0, 8))
       setPaths(path.paths || [])
       setSync(sy)
+      setAttrData(attr)
+      setSourcePaths(src?.paths || [])
+      setTermPaths(term?.paths || [])
     } catch (e: any) {
       setError(e.message)
       router.push('/')
@@ -120,6 +145,20 @@ export default function DashboardPage() {
   useEffect(() => {
     if (apiKey) fetchAll(apiKey, period)
   }, [apiKey, period, fetchAll])
+
+  // 기여모델 변경 시 attribution만 재조회
+  const handleModelChange = useCallback(async (model: string) => {
+    setAttrModel(model)
+    if (!apiKey) return
+    const { from, to } = getDateRange(period)
+    try {
+      const res = await fetch(`/api/attribution?key=${apiKey}&from=${from}&to=${to}&model=${model}`)
+      if (res.ok) {
+        const data = await res.json()
+        setAttrData(data)
+      }
+    } catch { /* ignore */ }
+  }, [apiKey, period])
 
   const summary = kpiData?.summary
   const chartData = (kpiData?.data || []).map(r => ({
@@ -292,6 +331,151 @@ export default function DashboardPage() {
                       <td className="mono" style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-secondary)' }}>{p.avg_days_to_convert?.toFixed(1) ?? '—'}일</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* §6 UTM Attribution — 기여모델별 매출 기여 */}
+          <section style={{ background: '#0D1117', border: '1px solid var(--border)', borderRadius: '2px', padding: '24px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <SectionHeader title="UTM 기여모델 분석" badge={ATTR_MODELS.find(m => m.value === attrModel)?.label || attrModel} />
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {ATTR_MODELS.map(m => (
+                  <button key={m.value} onClick={() => handleModelChange(m.value)}
+                    style={{ padding: '4px 10px', background: attrModel === m.value ? 'var(--accent)' : 'transparent', color: attrModel === m.value ? '#000' : 'var(--text-secondary)', border: `1px solid ${attrModel === m.value ? 'var(--accent)' : 'var(--border)'}`, borderRadius: '2px', fontFamily: 'DM Mono, monospace', fontSize: '10px', cursor: 'pointer', letterSpacing: '0.5px' }}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {attrData?.channels && attrData.channels.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '20px' }}>
+                {/* Bar Chart */}
+                <div>
+                  <p className="mono" style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '12px', letterSpacing: '1px' }}>매출 기여 (₩)</p>
+                  <ResponsiveContainer width="100%" height={Math.max(200, (attrData.channels.filter(c => c.order_amount > 0).length) * 36)}>
+                    <BarChart data={attrData.channels.filter(c => c.order_amount > 0)} layout="vertical" margin={{ left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+                      <XAxis type="number" tick={{ fill: '#6B7FA3', fontSize: 10, fontFamily: 'DM Mono' }} tickLine={false} axisLine={false} tickFormatter={v => fmtRevenue(v)} />
+                      <YAxis type="category" dataKey="utm_source" tick={{ fill: '#6B7FA3', fontSize: 10, fontFamily: 'DM Mono' }} tickLine={false} axisLine={false} width={120}
+                        tickFormatter={(v: string) => v.length > 16 ? v.slice(0, 16) + '…' : v} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Bar dataKey="order_amount" fill="#00FF88" name="매출" radius={[0, 2, 2, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                {/* Table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        {['소스', '매체', '매출', '전환수', '기여비중', 'PV'].map(h => (
+                          <th key={h} className="mono" style={{ padding: '6px 8px', textAlign: 'left', fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '1px', fontWeight: '500', whiteSpace: 'nowrap' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {attrData.channels.map((c, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid rgba(28,36,51,0.6)' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,229,255,0.02)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                          <td className="mono" style={{ padding: '8px', fontSize: '11px', color: 'var(--text-primary)' }}>{c.utm_source}</td>
+                          <td className="mono" style={{ padding: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>{c.utm_medium?.length > 18 ? c.utm_medium.slice(0, 18) + '…' : c.utm_medium}</td>
+                          <td className="mono" style={{ padding: '8px', fontSize: '11px', color: 'var(--gold)' }}>₩{fmt(c.order_amount)}</td>
+                          <td className="mono" style={{ padding: '8px', fontSize: '11px', color: 'var(--accent)' }}>{c.order_count}</td>
+                          <td className="mono" style={{ padding: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>{c.share_pct?.toFixed(1)}%</td>
+                          <td className="mono" style={{ padding: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>{fmt(c.pageview)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p className="mono" style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '40px' }}>데이터 없음</p>
+            )}
+          </section>
+
+          {/* §7 Source Paths — 매체별 경로 분석 */}
+          <section style={{ background: '#0D1117', border: '1px solid var(--border)', borderRadius: '2px', padding: '24px', marginBottom: '20px' }}>
+            <SectionHeader title="매체별 경로 분석" badge="SOURCE TRACE" />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    {['매체 경로', '세션', '방문자', '전환수', '매출'].map(h => (
+                      <th key={h} className="mono" style={{ padding: '8px 12px', textAlign: 'left', fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '1px', fontWeight: '500', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sourcePaths.length > 0 ? sourcePaths.slice(0, 20).map((p, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid rgba(28,36,51,0.6)' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,229,255,0.02)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <td style={{ padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                          {(p.source_trace || '').split(' > ').map((step, j, arr) => (
+                            <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <span className="mono" style={{ fontSize: '11px', color: 'var(--text-primary)', background: 'rgba(0,255,136,0.06)', border: '1px solid rgba(0,255,136,0.15)', borderRadius: '2px', padding: '1px 6px' }}>
+                                {step.length > 14 ? step.slice(0, 14) + '…' : step}
+                              </span>
+                              {j < arr.length - 1 && <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>→</span>}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="mono" style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-secondary)' }}>{fmt(p.sessions)}</td>
+                      <td className="mono" style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-secondary)' }}>{fmt(p.visitors)}</td>
+                      <td className="mono" style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--accent)' }}>{p.order_count}</td>
+                      <td className="mono" style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--gold)' }}>{p.order_amount ? `₩${fmt(p.order_amount)}` : '—'}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={5} className="mono" style={{ padding: '40px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>데이터 없음</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* §8 Term Paths — 소재별 경로 분석 */}
+          <section style={{ background: '#0D1117', border: '1px solid var(--border)', borderRadius: '2px', padding: '24px', marginBottom: '20px' }}>
+            <SectionHeader title="소재별 경로 분석" badge="TERM TRACE" />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    {['소재 경로', '세션', '방문자', '전환수', '매출'].map(h => (
+                      <th key={h} className="mono" style={{ padding: '8px 12px', textAlign: 'left', fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '1px', fontWeight: '500', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {termPaths.length > 0 ? termPaths.slice(0, 20).map((p, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid rgba(28,36,51,0.6)' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,229,255,0.02)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <td style={{ padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                          {(p.term_trace || '').split(' > ').map((step, j, arr) => (
+                            <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <span className="mono" style={{ fontSize: '11px', color: 'var(--text-primary)', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.2)', borderRadius: '2px', padding: '1px 6px' }}>
+                                {step.length > 16 ? step.slice(0, 16) + '…' : step}
+                              </span>
+                              {j < arr.length - 1 && <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>→</span>}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="mono" style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-secondary)' }}>{fmt(p.sessions)}</td>
+                      <td className="mono" style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-secondary)' }}>{fmt(p.visitors)}</td>
+                      <td className="mono" style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--accent)' }}>{p.order_count}</td>
+                      <td className="mono" style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--gold)' }}>{p.order_amount ? `₩${fmt(p.order_amount)}` : '—'}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={5} className="mono" style={{ padding: '40px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>데이터 없음</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
