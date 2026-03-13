@@ -33,14 +33,11 @@ export async function validateApiKey(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  const { data, error } = await supabase
-    .from('ga4_tenant_bq_config')
-    .select('client_code')
-    .eq('api_key', apiKey)
-    .eq('is_active', true)
-    .single()
+  const { data, error } = await (supabase.rpc as any)('ga4_validate_api_key', {
+    p_api_key: apiKey,
+  })
 
-  if (error || !data) {
+  if (error || !data || data.length === 0) {
     return {
       error: NextResponse.json(
         { error: 'Unauthorized' },
@@ -51,7 +48,7 @@ export async function validateApiKey(
 
   return {
     result: {
-      clientCode: data.client_code as string,
+      clientCode: data[0].client_code as string,
       supabase,
     },
   }

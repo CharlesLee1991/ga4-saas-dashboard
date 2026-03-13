@@ -117,6 +117,73 @@ function FilterDropdown({ label, options, selected, onChange, multi = false }: {
   )
 }
 
+// ── Source Multi-Select Filter (JUVIS-style) ──
+function SourceFilterDropdown({ label, sources, selected, onToggle }: {
+  label: string; sources: string[]; selected: Set<string>; onToggle: (s: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = sources.filter(s => s.toLowerCase().includes(search.toLowerCase()))
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(!open)} style={{
+        display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', minWidth: '160px',
+        background: '#fff', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px',
+        cursor: 'pointer', color: '#1a202c', justifyContent: 'space-between',
+      }}>
+        <span style={{ fontWeight: '500' }}>{label}</span>
+        <span style={{ color: '#9ca3af', fontSize: '12px' }}>▼</span>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: '4px', minWidth: '280px',
+          background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '12px',
+          boxShadow: '0 10px 40px rgba(0,0,0,0.12)', zIndex: 50,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '8px 12px', background: '#f9fafb', borderRadius: '8px' }}>
+            <span style={{ color: '#9ca3af' }}>🔍</span>
+            <input type="text" placeholder="검색어 입력" value={search} onChange={e => setSearch(e.target.value)}
+              style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', flex: 1, color: '#374151' }} />
+            <span style={{ background: '#e5e7eb', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', color: '#6b7280' }}>{label}</span>
+          </div>
+          <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+            {filtered.map(s => (
+              <button key={s} onClick={() => onToggle(s)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '10px 12px',
+                  background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px',
+                  color: '#4b5563', borderRadius: '6px',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f3f4f6')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+                <span style={{
+                  width: '18px', height: '18px', borderRadius: '4px',
+                  border: `2px solid ${selected.has(s) ? '#e53e3e' : '#d1d5db'}`,
+                  background: selected.has(s) ? '#e53e3e' : '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  {selected.has(s) && <span style={{ color: '#fff', fontSize: '11px', fontWeight: '700' }}>✓</span>}
+                </span>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TabNav({ active, onChange }: { active: string; onChange: (t: string) => void }) {
   return (
     <nav style={{ display: 'flex', gap: '0', borderBottom: '2px solid #e2e8f0', marginBottom: '24px' }}>
@@ -161,7 +228,8 @@ function PathBadge({ step, isFirst, isLast }: { step: string; isFirst?: boolean;
 function AttributionTab({ apiKey, period }: { apiKey: string; period: number }) {
   const [attrData, setAttrData] = useState<AttrData | null>(null)
   const [dailyData, setDailyData] = useState<DailyRow[]>([])
-  const [sources, setSources] = useState<string[]>([])
+  const [allSources, setAllSources] = useState<string[]>([])
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set())
   const [model, setModel] = useState('last')
   const [dimension, setDimension] = useState('source')
   const [loading, setLoading] = useState(true)
@@ -178,14 +246,27 @@ function AttributionTab({ apiKey, period }: { apiKey: string; period: number }) 
       const [attr, daily] = await Promise.all([attrRes.json(), dailyRes.json()])
       setAttrData(attr)
       setDailyData(daily.data || [])
-      setSources((daily.sources || []).slice(0, 6))
+      // Extract all sources from channels
+      const srcs = (attr?.channels || []).map((c: AttrChannel) => c.utm_source).filter(Boolean)
+      const unique = Array.from(new Set(srcs)) as string[]
+      setAllSources(unique)
+      setSelectedSources(new Set(unique.slice(0, 5))) // default: top 5
     } catch { /* */ }
     setLoading(false)
   }, [apiKey, period])
 
   useEffect(() => { fetchData(model) }, [fetchData, model])
 
-  const channels = attrData?.channels || []
+  const toggleSource = (s: string) => {
+    setSelectedSources(prev => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }
+
+  const channels = (attrData?.channels || []).filter(c => selectedSources.has(c.utm_source))
+  const chartSources = allSources.filter(s => selectedSources.has(s)).slice(0, 6)
   const maxOrder = Math.max(...channels.map(c => c.order_count), 1)
   const maxRevenue = Math.max(...channels.map(c => c.order_amount), 1)
   const maxPV = Math.max(...channels.map(c => c.pageview), 1)
@@ -204,7 +285,7 @@ function AttributionTab({ apiKey, period }: { apiKey: string; period: number }) 
     <div className="animate-fade-in">
       {/* Filters */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <FilterDropdown label={dimension} options={DIMENSIONS} selected={dimension} onChange={setDimension} />
+        <SourceFilterDropdown label="source" sources={allSources} selected={selectedSources} onToggle={toggleSource} />
         <FilterDropdown label={`model: ${MODELS.find(m => m.value === model)?.label || model}`} options={MODELS} selected={model} onChange={setModel} />
         <span style={{ padding: '10px 20px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '14px', background: '#fff', color: '#4a5568' }}>
           최근 {period}일
@@ -227,14 +308,14 @@ function AttributionTab({ apiKey, period }: { apiKey: string; period: number }) 
             <YAxis tick={{ fill: '#a0aec0', fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
             <Tooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px' }}
               labelFormatter={(v) => String(v)} />
-            {sources.map((s, i) => (
+            {chartSources.map((s, i) => (
               <Line key={s} type="monotone" dataKey={s} stroke={LINE_COLORS[i % LINE_COLORS.length]}
                 strokeWidth={2} dot={false} name={s} />
             ))}
           </LineChart>
         </ResponsiveContainer>
         <div style={{ display: 'flex', gap: '16px', justifyContent: 'flex-end', marginTop: '8px' }}>
-          {sources.map((s, i) => (
+          {chartSources.map((s, i) => (
             <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#4a5568' }}>
               <div style={{ width: '12px', height: '3px', background: LINE_COLORS[i % LINE_COLORS.length], borderRadius: '2px' }} />
               {s}
