@@ -32,8 +32,12 @@ jobs:
           fi
           echo "OK: no high-risk secret patterns."
 
-      # 3. CLAUDE.md 존재 (STD-GITHUB-CONTEXT-LAYER)
-      - name: Require CLAUDE.md
+      # 3. Agent guide 존재 (CLAUDE.md 또는 AGENTS.md)
+      - name: Require agent guide
         run: |
-          test -f CLAUDE.md || { echo "::error::CLAUDE.md missing (STD-GITHUB-CONTEXT-LAYER v1.1)."; exit 1; }
-          echo "OK: CLAUDE.md present."
+          if [ -f CLAUDE.md ] || [ -f AGENTS.md ]; then
+            echo "OK: agent guide present."
+          else
+            echo "::error::CLAUDE.md or AGENTS.md missing (STD-GITHUB-CONTEXT-LAYER v1.1)."
+            exit 1
+          fi
