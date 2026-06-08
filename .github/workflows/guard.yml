@@ -11,14 +11,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. .env 커밋 차단 (.env.example 은 허용)
-      - name: Block committed .env
+      # 1. .env 안의 고위험 키만 차단 (VITE_ anon/publishable 공개키는 허용 — Lovable 호환)
+      - name: Guard .env contents
         run: |
-          if git ls-files | grep -E '(^|/)\.env$'; then
-            echo "::error::.env is committed. Remove it (git rm --cached) and add .env to .gitignore."
-            exit 1
-          fi
-          echo "OK: no .env tracked."
+          bad=0
+          for f in $(git ls-files | grep -E '(^|/)\.env(\.[a-zA-Z0-9]+)?$' | grep -vE 'example|sample'); do
+            if grep -qiE 'service_role|service_key|secret_key|private_key|sk-proj-|sk-ant-api|ghp_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{16}' "$f"; then
+              echo "::error::$f has a high-risk secret (service_role/API key). Use a secret store, not .env."
+              bad=1
+            fi
+          done
+          [ "$bad" = "1" ] && exit 1
+          echo "OK: .env files contain no high-risk secrets (public VITE_ keys allowed)."
 
       # 2. 고위험 시크릿 패턴 스캔 (lock/바이너리 제외, JWT는 오탐 많아 제외)
       - name: Scan high-risk secrets
