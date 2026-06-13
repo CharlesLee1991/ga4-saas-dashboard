@@ -10,6 +10,11 @@
 > 정본 충돌 시: 이 repo > KHub. 상위 표준: bizspring-standards / STD-GITHUB-CONTEXT-LAYER v1.1.
 > ⚠️ 최소 골격(2026-06-07 일괄 생성). §1 제품 정체성·§2 정본은 **소관 방에서 채울 것**(TBD).
 
+
+## 전사 지형도·표준 (먼저 확인)
+- 전사 구조/repo 지도 → bizspring-standards/docs/REPO-TOPOLOGY.md (KHub 84a5a172)
+- 전사 표준(AP/골든/PGE/헌법/보안) → bizspring-standards/standards/*
+
 ## 1. WHAT — 이 repo는
 - 제품: (TBD — 소관 방에서 1줄 기입)
 - 소관 방 / project_code: (TBD)
